@@ -1,5 +1,7 @@
+// /src/components/DevMenu.tsx
 import React, { useState, type ChangeEvent } from 'react';
 import { CSVPreviewer } from './CSVPreviewer';
+import CSVLoader from './CSVLoader';
 import '../css/DevMenu.css';
 
 interface DevMenuProps {
@@ -9,11 +11,11 @@ interface DevMenuProps {
     onDone: () => void;
     toggleRoboticLook: (enabled: boolean) => void;
 
-    // NEW:
     numSegments: number;
     setNumSegments: (n: number) => void;
     totalDuration: number;
     setTotalDuration: (t: number) => void;
+    onTasksLoaded: (tasks: string[]) => void;
 }
 
 const DevMenu: React.FC<DevMenuProps> = ({
@@ -26,38 +28,26 @@ const DevMenu: React.FC<DevMenuProps> = ({
     setNumSegments,
     totalDuration,
     setTotalDuration,
+    onTasksLoaded,
 }) => {
     const [hasAccess, setHasAccess] = React.useState(false);
     const [roboticLook, setRoboticLook] = React.useState(false);
     const [csvRows, setCsvRows] = useState<string[][]>([]); // Shared CSV state
     const correctPassword = '1';
 
-    const handleToggleMenu = () => {
-        if (hasAccess) {
-            toggleOpen();
-        } else {
-            const input = prompt('Enter dev password:');
-            if (input === correctPassword) {
-                setHasAccess(true);
-                toggleOpen();
-            } else {
-                alert('Incorrect password.');
-            }
-        }
-    };
+    //  
+    // const handleCSVInput = (e: ChangeEvent<HTMLInputElement>) => {
+    //     const file = e.target.files?.[0];
+    //     if (!file) return;
 
-    const handleCSVInput = (e: ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const text = event.target?.result as string;
-            const rows = text.trim().split('\n').map(row => row.split(','));
-            setCsvRows(rows);
-        };
-        reader.readAsText(file);
-    };
+    //     const reader = new FileReader();
+    //     reader.onload = (event) => {
+    //         const text = event.target?.result as string;
+    //         const rows = text.trim().split('\n').map(row => row.split(','));
+    //         setCsvRows(rows);
+    //     };
+    //     reader.readAsText(file);
+    // };
 
 
     return (
@@ -68,7 +58,7 @@ const DevMenu: React.FC<DevMenuProps> = ({
 
             {isOpen && (
                 <div id="dev-menu-int">
-                    <h1 className="dev-h1">Experimental Controls</h1>
+                    <h1 className="dev-h1">Operator Controls</h1>
                     <button
                         id="closeDevMenu"
                         onClick={() => {
@@ -98,7 +88,7 @@ const DevMenu: React.FC<DevMenuProps> = ({
                             id="totalDuration"
                             type="number"
                             value={totalDuration}
-                            step="0.1" 
+                            step="0.1"
                             onChange={(e) => setTotalDuration(Number(e.target.value))} /*readOnly*/
                         />
 
@@ -111,14 +101,24 @@ const DevMenu: React.FC<DevMenuProps> = ({
 
                     <section id="dev-csv-load">
                         <h2 className="dev-h2">Load Feature List</h2>
-                        <p>Accepted formats: .csv</p>
+                        {/* <p>Accepted formats: .csv</p> */}
 
                         {/* <label htmlFor="csvInput">Select CSV File:</label> */}
-                        <input type="file" id="csvInput" accept=".csv" onChange={handleCSVInput} />
+                        {/* <input type="file" id="csvInput" accept=".csv" onChange={handleCSVInput} /> */}
+
+                        <CSVLoader
+                            testFlowManager={{
+                                loadTasks: (tasks) => {
+                                    const rows = tasks.map(row => [row]);
+                                    setCsvRows(rows);
+                                    if (onTasksLoaded) onTasksLoaded(tasks);
+                                },
+                            }}
+                        />
 
                         <div id="csvMenuComponents">
                             <section className="csvComponents">
-                                <h3 className="dev-h3">Preview</h3>
+                                <h3 className="dev-h3">Preview</h3> {/*//THIS IS THE CSV PREVIEWER! */}
                                 <CSVPreviewer rows={csvRows} />
                             </section>
 

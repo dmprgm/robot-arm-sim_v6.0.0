@@ -11,14 +11,16 @@ body.dev-menu-open #dev-menu {
   overflow-y: auto;
   box-sizing: border-box;
   padding: 1rem;
+  margin: 0;
   box-shadow: -2px 0 5px rgba(0, 0, 0, 0.5);
   transition: all 0.3s ease;
   display: none;
   z-index: 1000;
-  margin: 0;
   position: relative;
   overflow-x: visible;
-  overscroll-behavior: contain; /* Prevent scroll chaining */
+  overscroll-behavior: contain; 
+  
+  /* ^Prevent scroll chaining */
 }
 
 .dev-h1 {

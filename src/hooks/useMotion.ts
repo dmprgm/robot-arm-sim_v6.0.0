@@ -5,31 +5,71 @@ import { IKSolver } from '../utils/ik';
 import { MotionPlanner } from '../utils/motion';
 import { CanvasRenderer } from '../components/CanvasRenderer';
 import type { Point } from '../utils/motion';
+import { saveAsCSV } from '../utils/saveasCSV';
 
 interface UseMotionOptions {
-  canvasRef: React.RefObject<HTMLCanvasElement | null>; // ✅ compatible with useRef
+  canvasRef: React.RefObject<HTMLCanvasElement | null>; // compatible with useRef
   width: number;
   height: number;
   limbLengths?: [number, number];
   cellSize?: number;
   maxPoints?: number; // NEW! for num segments...
+  locked: boolean;
+  setLocked: React.Dispatch<React.SetStateAction<boolean>>;
+  hasPreviewed: boolean;
+  setHasPreviewed: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-export function useMotion({ canvasRef, width, height, limbLengths = [200, 100], cellSize = 40, maxPoints = 5, // <- maxPoints here is supposed to be a fallback default
-
- }: UseMotionOptions) {
+export function useMotion({
+  canvasRef,
+  width,
+  height,
+  limbLengths = [200, 100],
+  cellSize = 40,
+  maxPoints = 5, // <- maxPoints here is supposed to be a fallback default
+  locked,
+  setLocked,
+  hasPreviewed,
+  setHasPreviewed,
+}: UseMotionOptions) {
   const plannerRef = useRef<MotionPlanner | null>(null);
   const rendererRef = useRef<CanvasRenderer | null>(null);
-  const [angles, setAngles] = useState<[number, number]>([0, 0]);
-  const [locked, setLocked] = useState(false);
-  const [previewPoint, setPreviewPoint] = useState<Point | null | undefined>(null);
-  // const [numSegments, setNumSegments] = useState(5); // 5 is the default value...
 
-  const addCheckpoint = useCallback((pt: Point) => {
-    console.log("Checkpoint added:", pt); // add this
+  const [angles, setAngles] = useState<[number, number]>([0, 0]);
+  const [previewPoint, setPreviewPoint] = useState<Point | null | undefined>(null);
+
+
+  const [motionData, setMotionData] = useState<string[][]>([]); // or appropriate type for your data
+  const addMotionRecord = useCallback((newRecord: string[]) => {
+    setMotionData(prev => [...prev, newRecord]);
+  }, []);
+
+  const redraw = useCallback(() => {
     const planner = plannerRef.current;
     const renderer = rendererRef.current;
     if (!planner || !renderer) return;
+
+    const checkpoints = planner.getCheckpoints();
+    const maxReach = planner.getMaxReach();
+    const spline = planner.getSplineWithColors();
+
+    renderer.drawScene(
+      checkpoints,
+      angles,
+      locked,
+      maxReach,
+      true,
+      undefined,
+      spline
+    );
+  }, [angles, locked]);
+
+
+  const addCheckpoint = useCallback((pt: Point) => {
+    const planner = plannerRef.current;
+    const renderer = rendererRef.current;
+    if (!planner || !renderer) return;
+
     if (planner.tryAddCheckpoint(pt, maxPoints)) {
       renderer.drawScene(planner.getCheckpoints(), angles, locked, planner.getMaxReach(), false);
       if (planner.getCheckpoints().length >= maxPoints) {
@@ -38,7 +78,7 @@ export function useMotion({ canvasRef, width, height, limbLengths = [200, 100], 
         console.log('Segment initialized. Locked = true');
       }
     }
-  }, [angles, locked, maxPoints]);
+  }, [angles, locked, maxPoints, setLocked]);
 
   // Initialize on mount
   useEffect(() => {
@@ -50,6 +90,7 @@ export function useMotion({ canvasRef, width, height, limbLengths = [200, 100], 
     console.log("useMotion initializing");
     const canvas = canvasRef.current;
     if (!canvas) return;
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -70,7 +111,7 @@ export function useMotion({ canvasRef, width, height, limbLengths = [200, 100], 
       false,
       previewPoint ?? undefined
     );
-  }, [canvasRef, width, height, limbLengths, cellSize]);
+  }, [canvasRef, width, height, limbLengths, cellSize, angles, locked, previewPoint]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -116,22 +157,7 @@ export function useMotion({ canvasRef, width, height, limbLengths = [200, 100], 
     };
   }, [canvasRef, addCheckpoint, locked]);
 
-
   // Redraw when angles or locked change
-  useEffect(() => {
-    const planner = plannerRef.current;
-    const renderer = rendererRef.current;
-    if (planner && renderer) {
-      renderer.drawScene(
-        planner.getCheckpoints(),
-        angles,
-        locked,
-        planner.getMaxReach(),
-        false
-      );
-    }
-  }, [angles, locked]);
-
   useEffect(() => {
     const planner = plannerRef.current;
     const renderer = rendererRef.current;
@@ -147,32 +173,82 @@ export function useMotion({ canvasRef, width, height, limbLengths = [200, 100], 
     }
   }, [previewPoint]);
 
+  useEffect(() => {
+    const planner = plannerRef.current;
+    const renderer = rendererRef.current;
+    if (!planner || !renderer) return;
+
+    renderer.drawScene(
+      planner.getCheckpoints(),
+      angles,
+      locked,
+      planner.getMaxReach(),
+      false,
+      previewPoint ?? undefined
+    );
+  }, [previewPoint]);
+
   const clearPath = useCallback(() => {
     const planner = plannerRef.current;
     const renderer = rendererRef.current;
     if (!planner || !renderer) return;
+
     planner.clear();
     setLocked(false);
     setAngles([0, 0]);
     renderer.drawScene(planner.getCheckpoints(), [0, 0], false, planner.getMaxReach(), false);
-  }, []);
+  }, [setLocked]);
 
   const preview = useCallback(async (totalDurationSec = 5) => {
     const planner = plannerRef.current;
-    if (!planner) {
-      console.warn('No planner');
+    if (!planner || !locked) {
+      console.warn('Preview unavailable, either planner not ready or not locked.');
       return;
     }
+
     if (!locked) {
       console.warn('Not locked yet');
       return;
     }
+
     console.log('Starting preview...');
+    setHasPreviewed(true); // new! for the NEXT button.
     await planner.animate(totalDurationSec, (updated) => {
       setAngles(updated);
-      console.log('Frame:', updated);
+
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+
+      const spline = planner.getSplineWithColors();
+
+      renderer.drawScene(
+        planner.getCheckpoints(),
+        updated,
+        true,  // locked = true during preview
+        planner.getMaxReach(),
+        true,  // <-- pass true here to tell drawScene to draw the spline (squiggly)
+        undefined,
+        spline
+      );
     });
-  }, [locked]);
+  }, [locked, setHasPreviewed]);
+
+  const saveAndReset = useCallback((filename: string, totalDurationSec: number) => {
+    const planner = plannerRef.current;
+    const renderer = rendererRef.current;
+    if (!planner || !renderer) return;
+
+    // Export motion data
+    saveAsCSV(motionData, filename);
+
+    // Clear everything and unlock
+    planner.clear();
+    setLocked(false);
+    setAngles([0, 0]);
+    setPreviewPoint(null);
+    renderer.drawScene([], [0, 0], false, planner.getMaxReach(), false);
+  }, []);
+
 
   const findSegment = useCallback((pt: Point) => {
     const planner = plannerRef.current;
@@ -190,11 +266,16 @@ export function useMotion({ canvasRef, width, height, limbLengths = [200, 100], 
   return {
     angles,
     locked,
+    setLocked,
     addCheckpoint,
     clearPath,
     preview,
     findSegment,
     planner: plannerRef.current,
     exportData,
+    motionData,
+    addMotionRecord,
+    hasPreviewed,
+    setHasPreviewed,
   };
 }

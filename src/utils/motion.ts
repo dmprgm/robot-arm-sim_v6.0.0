@@ -30,11 +30,94 @@ export class MotionPlanner {
   private perlinX = makePerlin1D();
   private perlinY = makePerlin1D();
 
+  private noiseOffsets: { dx: number; dy: number }[][] = [];
+
   constructor(base: Point, ikSolver: (dx: number, dy: number) => [number, number][], limbLengths: number[] = []) {
     this.base = base;
     this.ikSolver = ikSolver;
     this.limbLengths = limbLengths;
     this.maxReach = limbLengths.reduce((sum, len) => sum + len, 0);
+  }
+
+  getSplineWithColors(): { pts: Point[]; colors: string[] } {
+    if (this.checkpoints.length < 2) return { pts: [], colors: [] };
+
+    const splineData = buildSpline(this.checkpoints);
+    const rawPts = splineData.points;
+
+    const speeds = this.velocityValues.length ? this.velocityValues : Array(this.checkpoints.length - 1).fill(1);
+    const curvatures = this.curvatureValues.length ? this.curvatureValues : Array(this.checkpoints.length - 1).fill(0.5);
+    const noises = this.noiseValues.length ? this.noiseValues : Array(this.checkpoints.length - 1).fill(0.0);
+
+    const maxSpeed = Math.max(...speeds);
+    const minSpeed = Math.min(...speeds);
+    const speedRange = maxSpeed - minSpeed || 1;
+
+    const getSpeedColor = (speed: number): string => {
+      const t = (speed - minSpeed) / speedRange;
+      const r = Math.round(255 * t);
+      const g = Math.round(255 * (1 - t));
+      return `rgb(${r},${g},0)`;
+    };
+
+    const segmentCount = speeds.length;
+    const pointsPerSegment = Math.max(1, Math.floor(rawPts.length / segmentCount));
+
+    const pts: Point[] = [];
+    const colors: string[] = [];
+
+    for (let i = 0; i < rawPts.length; i++) {
+      const segmentIdx = Math.min(Math.floor(i / pointsPerSegment), segmentCount - 1);
+      const raw = rawPts[i];
+      const curvature = curvatures[segmentIdx];
+      const noise = noises[segmentIdx];
+
+      let x = raw.x;
+      let y = raw.y;
+
+      if (noise > 0) {
+        const amp = 20 * noise;
+        const tNoise = i * 0.1;
+        x += this.perlinX(tNoise + segmentIdx * 100) * amp;
+        y += this.perlinY(tNoise + segmentIdx * 200) * amp;
+      }
+
+      const linearX = this.checkpoints[segmentIdx].x + (this.checkpoints[segmentIdx + 1].x - this.checkpoints[segmentIdx].x) * (i % pointsPerSegment / pointsPerSegment);
+      const linearY = this.checkpoints[segmentIdx].y + (this.checkpoints[segmentIdx + 1].y - this.checkpoints[segmentIdx].y) * (i % pointsPerSegment / pointsPerSegment);
+
+      // const curvedX = curvature * linearX + (1 - curvature) * x;
+      // const curvedY = curvature * linearY + (1 - curvature) * y;
+      const curvedX = (1 - curvature) * linearX + curvature * x;
+      const curvedY = (1 - curvature) * linearY + curvature * y;
+
+      pts.push({ x: curvedX, y: curvedY });
+      colors.push(getSpeedColor(speeds[segmentIdx]));
+    }
+    console.log(" Velocity values:", this.velocityValues);
+    console.log(" Noise values:", this.noiseValues);
+
+    return { pts, colors };
+  }
+
+  getCurvature(i: number): number {
+    return this.curvatureValues[i];
+  }
+  setCurvature(i: number, val: number): void {
+    this.curvatureValues[i] = val;
+  }
+
+  getVelocity(i: number): number {
+    return this.velocityValues[i];
+  }
+  setVelocity(i: number, val: number): void {
+    this.velocityValues[i] = val;
+  }
+
+  getNoise(i: number): number {
+    return this.noiseValues[i];
+  }
+  setNoise(i: number, val: number): void {
+    this.noiseValues[i] = val;
   }
 
   getCheckpoints(): Point[] {
@@ -45,15 +128,21 @@ export class MotionPlanner {
     return this.maxReach;
   }
 
-tryAddCheckpoint(pt: Point, maxPts: number): boolean {
-  const last = this.checkpoints[this.checkpoints.length - 1];
-  if (last && last.x === pt.x && last.y === pt.y) return false; // Prevent duplicate
-  if (this.checkpoints.length < maxPts) {
-    this.checkpoints.push(pt);
-    return true;
+  tryAddCheckpoint(pt: Point, maxPts: number): boolean {
+    const last = this.checkpoints[this.checkpoints.length - 1];
+    if (last && last.x === pt.x && last.y === pt.y) return false; // Prevent duplicate
+    if (this.checkpoints.length < maxPts) {
+      this.checkpoints.push(pt);
+      return true;
+    }
+    return false;
   }
-  return false;
-}
+
+  getSegmentPoints(index: number): [Point, Point] | null {
+    if (index < 0 || index >= this.checkpoints.length - 1) return null;
+    return [this.checkpoints[index], this.checkpoints[index + 1]];
+  }
+
 
   findHoveredSegment(mx: number, my: number): number {
     const threshold = 5;
@@ -77,11 +166,33 @@ tryAddCheckpoint(pt: Point, maxPts: number): boolean {
   }
 
   initializeSegments(): void {
-    const n = this.checkpoints.length - 1;
+    const n = Math.max(0, this.checkpoints.length - 1);
     this.curvatureValues = Array(n).fill(0.5);
     this.velocityValues = Array(n).fill(1.0);
     this.noiseValues = Array(n).fill(0.0);
   }
+
+  precomputeNoiseOffsets(stepsPerSegment = 50) {
+    this.noiseOffsets = [];
+
+    for (let i = 0; i < this.checkpoints.length - 1; i++) {
+      const noise = this.noiseValues[i];
+      const offsets: { dx: number; dy: number }[] = [];
+
+      for (let j = 0; j <= stepsPerSegment; j++) {
+        const tNoise = j / stepsPerSegment;
+
+        const amp = 20 * noise;
+        const dx = this.perlinX(tNoise + i * 100) * amp;
+        const dy = this.perlinY(tNoise + i * 200) * amp;
+
+        offsets.push({ dx, dy });
+      }
+
+      this.noiseOffsets.push(offsets);
+    }
+  }
+
 
   clear(): void {
     this.checkpoints = [];
@@ -134,8 +245,8 @@ tryAddCheckpoint(pt: Point, maxPts: number): boolean {
         const offsetLen = lengths.slice(0, i).reduce((a, b) => a + b, 0);
         const L_i = lengths[i];
         const duration = tSegments[i] * 1000;
-        const curvature = this.curvatureValues[i];
-        const noise = this.noiseValues[i];
+        const curvature = this.getCurvature(i);
+        const noise = this.getNoise(i);
 
         const step = (now: number) => {
           const elapsed = now - t0;
@@ -146,11 +257,11 @@ tryAddCheckpoint(pt: Point, maxPts: number): boolean {
           const arcLen = offsetLen + L_i * t;
           const { x: arcX, y: arcY } = sampleSplineAtArcLength(splineData, arcLen);
 
-          let x = curvature * linX + (1 - curvature) * arcX;
-          let y = curvature * linY + (1 - curvature) * arcY;
+          let x = (1 - curvature) * linX + curvature * arcX;
+          let y = (1 - curvature) * linY + curvature * arcY;
 
           if (noise > 0) {
-            const amp = 6 * noise;
+            const amp = 20 * noise;
             const tNoise = now * 0.002;
             x += this.perlinX(tNoise + i * 100) * amp;
             y += this.perlinY(tNoise + i * 200) * amp;
@@ -174,6 +285,9 @@ tryAddCheckpoint(pt: Point, maxPts: number): boolean {
             resolve();
           }
         };
+
+        console.log(" Velocity values2:", this.velocityValues);
+        console.log(" Noise values2:", this.noiseValues);
 
         requestAnimationFrame(step);
       });

@@ -6,6 +6,7 @@ interface CSVLoaderProps {
     loadTasks: (tasks: string[]) => void;
   };
   onTasksLoaded?: () => void;
+  // hideUI?: boolean; // new thing to get rid of randomize and shit.
 }
 
 export default function CSVLoader({ testFlowManager, onTasksLoaded }: CSVLoaderProps) {
@@ -60,7 +61,7 @@ export default function CSVLoader({ testFlowManager, onTasksLoaded }: CSVLoaderP
         ref={fileInputRef}
         disabled={disabled}
       />
-      <label>
+      {/* <label>
         <input
           type="checkbox"
           checked={shuffleOrder}
@@ -69,6 +70,7 @@ export default function CSVLoader({ testFlowManager, onTasksLoaded }: CSVLoaderP
         />
         Random Order
       </label>
+      */}
       <button onClick={handleFile} disabled={disabled}>
         Load CSV
       </button>

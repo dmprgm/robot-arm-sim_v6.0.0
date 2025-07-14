@@ -51,26 +51,33 @@ export class CanvasRenderer {
     this.ctx.stroke();
   }
 
+  private getSpeedColor(speed: number): string {
+    const clamped = Math.min(1, Math.max(0, speed));
+    const r = Math.round(255 * clamped);
+    const g = Math.round(255 * (1 - clamped));
+    return `rgb(${r},${g},0)`; // red (fast) to green (slow)
+  }
+
   drawScene(
     checkpoints: Point[],
     angles: number[],
     locked: boolean,
     maxReach: number,
-    roboticStyle = false,
-    previewPoint?: Point
+    showSpline: boolean,
+    previewPoint?: Point,
+    splineWithColors?: { pts: Point[]; colors: string[] }
   ): void {
     console.log('Drawing scene with', checkpoints.length, 'checkpoints, locked:', locked);
     this.ctx.clearRect(0, 0, this.ctx.canvas.width, this.ctx.canvas.height);
     this.drawGround();
     this.drawReachableArea(maxReach);
-    this.drawPath(checkpoints, previewPoint);
-    this.drawRobot(angles, roboticStyle);
-
+    this.drawPath(checkpoints, previewPoint, locked, showSpline, splineWithColors);
+    this.drawRobot(angles);
   }
 
   private drawGround(): void {
     this.ctx.strokeStyle = '#888';
-    this.ctx.lineWidth = 2;
+    this.ctx.lineWidth = 4;
     this.ctx.beginPath();
     this.ctx.moveTo(0, this.base.y);
     this.ctx.lineTo(this.ctx.canvas.width, this.base.y);
@@ -94,58 +101,95 @@ export class CanvasRenderer {
     this.ctx.restore();
   }
 
-  private drawPath(points: Point[], previewPoint?: Point): void {
-    if (points.length === 0 && !previewPoint) return;
+  private drawPath(
+    checkpoints: Point[],
+    previewPoint?: Point,
+    locked?: boolean,
+    showSpline?: boolean,
+    splineWithColors?: { pts: Point[]; colors: string[] }
+  ): void {
+    const shouldDrawSpline = locked && showSpline && splineWithColors;
 
-    // Draw path to real checkpoints
-    this.ctx.strokeStyle = '#e74c3c';
-    this.ctx.lineWidth = 2;
-    this.ctx.beginPath();
+    if (!shouldDrawSpline) {
+      if (checkpoints.length === 0 && !previewPoint) return;
 
-    if (points.length > 0) {
-      this.ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i++) {
-        this.ctx.lineTo(points[i].x, points[i].y);
+      this.ctx.strokeStyle = '#e74c3c';
+      this.ctx.lineWidth = 4;
+      this.ctx.lineCap = 'round';
+      this.ctx.lineJoin = 'round';
+      this.ctx.beginPath();
+
+      if (checkpoints.length > 0) {
+        this.ctx.moveTo(checkpoints[0].x, checkpoints[0].y);
+        for (let i = 1; i < checkpoints.length; i++) {
+          this.ctx.lineTo(checkpoints[i].x, checkpoints[i].y);
+        }
       }
+
+      this.ctx.stroke();
+
+      checkpoints.forEach((pt, idx) => {
+        this.ctx.beginPath();
+        this.ctx.arc(pt.x, pt.y, 6, 0, 2 * Math.PI);
+        this.ctx.fillStyle = '#e74c3c';
+        this.ctx.fill();
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = '12px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText((idx + 1).toString(), pt.x, pt.y);
+      });
+
+      if (previewPoint && checkpoints.length > 0) {
+        this.ctx.save();
+        this.ctx.setLineDash([4, 4]);
+        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        this.ctx.beginPath();
+        const last = checkpoints[checkpoints.length - 1];
+        this.ctx.moveTo(last.x, last.y);
+        this.ctx.lineTo(previewPoint.x, previewPoint.y);
+        this.ctx.stroke();
+        this.ctx.setLineDash([]);
+        this.ctx.restore();
+
+        this.ctx.beginPath();
+        this.ctx.arc(previewPoint.x, previewPoint.y, 5, 0, 2 * Math.PI);
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        this.ctx.fill();
+      }
+
+      return;
     }
 
-    this.ctx.stroke();
+    // Draw colorful spline
+    const { pts, colors } = splineWithColors;
 
-    // Draw the red dots with labels
-    points.forEach((pt, idx) => {
+    this.ctx.lineWidth = 5;
+    this.ctx.lineCap = 'round';
+    this.ctx.lineJoin = 'round';
+
+    for (let i = 0; i < pts.length - 1; i++) {
       this.ctx.beginPath();
-      this.ctx.arc(pt.x, pt.y, 5, 0, 2 * Math.PI);
+      this.ctx.moveTo(pts[i].x, pts[i].y);
+      this.ctx.lineTo(pts[i + 1].x, pts[i + 1].y);
+      this.ctx.strokeStyle = colors[i];
+      this.ctx.stroke();
+    }
+
+    checkpoints.forEach((pt, idx) => {
+      this.ctx.beginPath();
+      this.ctx.arc(pt.x, pt.y, 6, 0, 2 * Math.PI);
       this.ctx.fillStyle = '#e74c3c';
       this.ctx.fill();
 
       this.ctx.fillStyle = '#fff';
-      this.ctx.font = '10px Arial';
+      this.ctx.font = '12px Arial';
       this.ctx.textAlign = 'center';
       this.ctx.textBaseline = 'middle';
       this.ctx.fillText((idx + 1).toString(), pt.x, pt.y);
     });
-
-    // Draw preview as dashed line from last point
-    if (previewPoint && points.length > 0) {
-      this.ctx.save();
-      this.ctx.setLineDash([4, 4]);
-      this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-      this.ctx.beginPath();
-      const last = points[points.length - 1];
-      this.ctx.moveTo(last.x, last.y);
-      this.ctx.lineTo(previewPoint.x, previewPoint.y);
-      this.ctx.stroke();
-      this.ctx.setLineDash([]);
-      this.ctx.restore();
-
-      // And draw preview point as ghost dot
-      this.ctx.beginPath();
-      this.ctx.arc(previewPoint.x, previewPoint.y, 5, 0, 2 * Math.PI);
-      this.ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-      this.ctx.fill();
-    }
   }
-
 
   private drawRobot(angles: number[], roboticStyle = false): void {
     let x = this.base.x;

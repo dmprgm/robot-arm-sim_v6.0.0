@@ -47,13 +47,13 @@ html, body {
   padding: 0;
   height: 100%;
   width: 100%;
-  overflow: hidden;
+  /* overflow: hidden; */
 }
 
 /* mainContent and dev-menu handled by App.css grid */
 
 #mainContent {
-  background: #242424;
+  background: #3a3a3a;
   color: white;
   padding: 1rem;
   overflow: auto;

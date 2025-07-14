@@ -28,7 +28,7 @@ export default function MainContent() {
     {/* <!-- user-controls --> */}
     <div className="user-controls">
       <button className="user-controlsB" id="clearBtn">Clear</button>
-      <button className="user-controlsB" id="previewBtn">Play</button>
+      <button className="user-controlsB" id="previewBtn">Play</button> {/* THIS DOES NOTHING BTW!!! */}
       <button className="user-controlsB" id="nextBtn">Next</button>
     </div>
 
